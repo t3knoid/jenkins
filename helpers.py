@@ -102,25 +102,86 @@ def upload_folder_flat(dest, folder, names):
             print '[INFO] Copying files in folder ' + folder + ' to ' + dest + ' successful.'
             sys.stdout.flush() 
 
-def upload_app_pkg_to_docker_server(dest, folder, names):
-    """ 
-    This is a helper method to the os.walk.path function. It upload's the
-    application package to the given SCP destination (dest). The app archive
-    is enumerated by looking for a file that contains the string ms-appserver.
+def build_ui_docker_images(v,r):
     """
-
-    file = "".join([s for s in names if "ms-appserver".lower() in s.lower()])    # Search the list of filenames for the app server package
-    scp(os.path.join(folder,file),dest)
-
-def upload_web_pkg_to_docker_server(dest, folder, names):
+    Launches the script that builds Docker ms ui image.
     """
-    This is a helper method to the os.walk.path function. It upload's the web 
-    archive to the given SCP destination (dest). The web archive is enumerated
-    by looking for the file that contains the string ms-webgui.
-    """
+    print 'Building Docker UI image build ' + v + '.' + r + '.'
+    sys.stdout.flush() 
+    command = 'ssh jenkins@' + dockerbuildserver + ' "' + 'rm -fr ~/html/ms.zip' + '"'
+    print command
+    execute(command)
+    command = 'ssh jenkins@' + dockerbuildserver + ' "' + 'mv ~/ms-webgui-' + v + '.zip ~/html/ms.zip' + '"'
+    print command
+    execute(command)
+    command = 'ssh -t -t jenkins@' + dockerbuildserver + ' "' + 'sudo ./jenkins_sync_ui.sh' + '"'
+    print command
+    execute(command)
+    command = 'ssh -t -t jenkins@' + dockerbuildserver + ' "' + 'sudo ./jenkins_build_ui.sh' + '"'
+    print command
+    execute(command)
+    command = 'ssh jenkins@' + dockerbuildserver + ' "' + 'md5sum ~/images_ui/rhel7_edg_msd_ui.tar>~/images_ui/rhel7_edg_msd_ui.tar.md5' + '"'
+    print command
+    execute(command)
+    command = 'ssh jenkins@' + dockerbuildserver + ' "' + 'md5sum ~/images_ui/rhel7_edg_msd_ui_debug.tar>~/images_ui/rhel7_edg_msd_ui_debug.tar.md5' + '"'
+    print command
+    execute(command)
+    command = 'ssh jenkins@' + dockerbuildserver + ' "' + 'find images_ui/ -type l -delete' + '"'
+    print command
+    execute(command)
+    command = 'ssh jenkins@' + dockerbuildserver + ' "' + 'ln -sf ~/images_ui/rhel7_edg_msd_ui_debug.tar ~/images_ui/msgui_debug_v' + v + '.' + r + '"'
+    print command
+    execute(command)
+    command = 'ssh jenkins@' + dockerbuildserver + ' "' + 'ln -sf ~/images_ui/rhel7_edg_msd_ui.tar.md5 ~/images_ui/msgui_v' + v + '.' + r + '.md5"'
+    print command
+    execute(command)
+    command = 'ssh jenkins@' + dockerbuildserver + ' "' + 'ln -sf ~/images_ui/rhel7_edg_msd_ui_debug.tar.md5 ~/images_ui/msgui_debug_v' + v + '.' + r + '.md5"'
+    print command
+    execute(command)
+    command = 'ssh jenkins@' + dockerbuildserver + ' "' + 'ln -sf ~/images_ui/rhel7_edg_msd_ui.tar.md5 ~/images_ui/msgui_v' + v + '.' + r + '.md5"'
+    print command
+    execute(command)
 
-    file = "".join([s for s in names if "ms-webgui".lower() in s.lower()])    # Search the list of filenames for the web server package
-    scp(os.path.join(folder,file),dest)
+def build_app_docker_images(v,r):
+    """
+    Launches the script that builds Docker ms app image.
+    """
+    print 'Building Docker App image build ' + v + '.' + r + '.'
+    sys.stdout.flush() 
+    command = 'ssh jenkins@' + dockerbuildserver + ' "' + 'rm -fr ~/html/ms.war' + '"'
+    print command
+    execute(command)
+    command = 'ssh jenkins@' + dockerbuildserver + ' "' + 'mv ~/ms-appserver-' + v + '.war ~/html/ms.war' + '"'
+    print command
+    execute(command)
+    command = 'ssh -t -t jenkins@' + dockerbuildserver + ' "' + 'sudo ./jenkins_sync_app.sh' + '"'
+    print command
+    execute(command)
+    command = 'ssh -t -t jenkins@' + dockerbuildserver + ' "' + 'sudo ./jenkins_build_app.sh' + '"'
+    print command
+    execute(command)
+    command = 'ssh jenkins@' + dockerbuildserver + ' "' + 'md5sum ~/images_app/rhel7_edg_msd_app.tar>~/images_app/rhel7_edg_msd_app.tar.md5' + '"'
+    print command
+    execute(command)
+    command = 'ssh jenkins@' + dockerbuildserver + ' "' + 'md5sum ~/images_app/rhel7_edg_msd_app_debug.tar>~/images_app/rhel7_edg_msd_app_debug.tar.md5' + '"'
+    print command
+    execute(command)
+    command = 'ssh jenkins@' + dockerbuildserver + ' "' + 'find images_app/ -type l -delete' + '"'
+    print command
+    execute(command)
+    command = 'ssh jenkins@' + dockerbuildserver + ' "' + 'ln -sf ~/images_app/rhel7_edg_msd_app_debug.tar ~/images_app/msapp_debug_v' + v + '.' + r + '"'
+    print command
+    execute(command)
+    command = 'ssh jenkins@' + dockerbuildserver + ' "' + 'ln -sf ~/images_app/rhel7_edg_msd_app.tar.md5 ~/images_app/msapp_v' + v + '.' + r + '.md5"'
+    print command
+    execute(command)
+    command = 'ssh jenkins@' + dockerbuildserver + ' "' + 'ln -sf ~/images_app/rhel7_edg_msd_app_debug.tar.md5 ~/images_app/msapp_debug_v' + v + '.' + r + '.md5"'
+    print command
+    execute(command)
+    command = 'ssh jenkins@' + dockerbuildserver + ' "' + 'ln -sf ~/images_app/rhel7_edg_msd_app.tar.md5 ~/images_app/msapp_v' + v + '.' + r + '.md5"'
+    print command
+    execute(command)
+
 
 def scp(file2copy,dest):
     """ Returns True or False
@@ -147,14 +208,14 @@ def scp(file2copy,dest):
         sys.stdout.flush() 
         return False
 
-def execute(command):
+def execute(cmd):
     """ Returns the command's exit code. A return of 0 indicates sucessful.
 
-    Execute's a given external command and prints the output of the command. It
+    Launches a given external command and prints the output of the command. It
     return's the command's return code. A return of 0 indicates successful.
     Otherwise, any other value is an indication of a failure.
     """
-    process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    process = subprocess.Popen(cmd, shell=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
     while True:     # Poll process for new output until finished
         nextline = process.stdout.readline()
@@ -171,12 +232,3 @@ def execute(command):
     #    return output
     #else:
     #    raise ProcessException(command, exitCode, output)
-
-def build_docker_images():
-    """
-    Launches the script that builds Docker images.
-    """
-    print 'Building Docker images'
-    sys.stdout.flush() 
-    command = "ssh jenkins@" + dockerbuildserver + " '" + "./checkssh.sh" + "'"
-    execute(command)
