@@ -4,23 +4,48 @@ import time
 import os.path
 import shutil
 import sys
+import string
 import win32wnet
 from datetime import date
 import hashlib
 import subprocess
 
-def hashfile(afile, hasher, blocksize=65536):
-    """ Return an MD5 of the given file
-
-    This generates the MD5 signature of given file
+def md5(fname):
+    """ Returns MD5 signature of given file
+    This calculates the MD5 signature of a given file.
     """
-    buf = afile.read(blocksize)
-    while len(buf) > 0:
-        hasher.update(buf)
-        buf = afile.read(blocksize)
-    return hasher.digest()
+    hash_md5 = hashlib.md5()
+    with open(fname, "rb") as f:
+        for chunk in iter(lambda: f.read(4096), b""):
+            hash_md5.update(chunk)
+    return hash_md5.hexdigest()
 
-# Convert DOS style path to Cygwin path
+def verify_md5(fname):
+    """ Returns true if the MD5 signature matches
+    This verifies the md5 signature of a given file. The file 
+    must be fully qualified. There must be an accoumpanying md5
+    file that was calculated using the md5sum tool. 
+    """
+    printnflush("Calculating md5 signature of " + fname)
+    calculated_md5=md5(fname)
+    printnflush("Calculated md5 signature = " + calculated_md5)
+    printnflush("Parsing stored md5 from " + fname  + ".md5")
+    with open(fname + ".md5", 'r') as infile:
+        first_line = infile.readline().split()
+    stored_md5 = first_line[0].strip()
+    printnflush("Stored md5 signature = " + stored_md5)
+    if calculated_md5 == stored_md5:
+       return True
+    else:
+       return False
+
+def printnflush(msg):
+   """ 
+   This prints the given string and performs a flush immediately.
+   """
+   print(msg)
+   sys.stdout.flush()
+
 def dos2cygpath(dospath):
     """ Returns the Cygwin path equivalent of a given path.
     
@@ -28,7 +53,7 @@ def dos2cygpath(dospath):
     may be a path to a folder or a file.
     """
 
-    #print '[INFO] Convert ' + '"' + dospath + '"' + ' to cygwin path equivalent.'
+    #printnflush '[INFO] Convert ' + '"' + dospath + '"' + ' to cygwin path equivalent.'
     drive, path_and_file = os.path.splitdrive(dospath)
     if os.path.isfile(dospath):
         path , file = os.path.split(path_and_file)
@@ -40,16 +65,13 @@ def dos2cygpath(dospath):
     for token in dospathtokens: 
         cygpath+=token
         cygpath+='/'
-    try: # Append file if a path to a file was passed
-        cygpath+=file  
+
+    # Try to append filename if it exists
+    try:
+        cygpath+=file
     except NameError:
-        #print '[INFO] no filename to append'
-        sys.stdout.flush() 
-    else:
-        #print '[INFO] filename appended'
-        sys.stdout.flush()
-    #print '[INFO] returning cygpath = ' + cygpath
-    sys.stdout.flush()
+        file = None
+
     return cygpath
 
 def onerror(func, path, exc_info):
@@ -74,14 +96,18 @@ def onerror(func, path, exc_info):
 def hasfiles(dir):
     """ Returns True or False
     
-    This is method  that determines if a given folder has files 
-    or not. It returns true if a file is found in the given
-    folder.
+    This method determines if a given folder has files or not. 
+    It returns true if a file is found in the given folder.
     """     
     for dirpath, dirnames, files in os.walk(dir):
-        if files:
+        if len(files) > 0:
             return True
     return False
+
+def create_softlinks(dir):
+    """
+    todo
+    """
 
 def upload_folder_flat(dest, folder, names):
     """ 
@@ -90,132 +116,99 @@ def upload_folder_flat(dest, folder, names):
     retaining the source folder organization structure.
     """
     if hasfiles(folder):  # Perform operation if folder contains files
-        print '[INFO] Copying files in folder ' + folder + ' to ' + dest + ' started.'
-        sys.stdout.flush() 
+        printnflush('[INFO] Copying files in folder ' + folder + ' to ' + dest + ' started.')
         try:
             for file in names:
-                scp(os.path.join(folder,file),dest)
+                file2copy = os.path.join(folder,file)
+                if os.path.isfile(file2copy): # Work on files only
+                   print 'Copying ' + file2copy + ', please wait. ',
+                   cygfilepath = dos2cygpath(file2copy) # Get cygwin equivalent path
+                   command = "scp" + " '" + cygfilepath + "' " + dest
+                   execute(command)
         except OSError:
-            print '[ERROR] Copying files in folder ' + folder + ' to ' + dest + ' failed.'
-            sys.stdout.flush() 
+            printnflush('[ERROR] Copying files in folder ' + folder + ' to ' + dest + ' failed.')
         else:
-            print '[INFO] Copying files in folder ' + folder + ' to ' + dest + ' successful.'
-            sys.stdout.flush() 
+            printnflush('[INFO] Copying files in folder ' + folder + ' to ' + dest + ' successful.')
 
-def build_ui_docker_images(v,r):
+def build_ui_docker_images(v,r,dest):
     """
     Launches the script that builds Docker ms ui image.
     """
-    print 'Building Docker UI image build ' + v + '.' + r + '.'
-    sys.stdout.flush() 
-    command = 'ssh jenkins@' + dockerbuildserver + ' "' + 'rm -fr ~/html/ms.zip' + '"'
-    print command
-    execute(command)
-    command = 'ssh jenkins@' + dockerbuildserver + ' "' + 'mv ~/ms-webgui-' + v + '.zip ~/html/ms.zip' + '"'
-    print command
-    execute(command)
-    command = 'ssh -t -t jenkins@' + dockerbuildserver + ' "' + 'sudo ./jenkins_sync_ui.sh' + '"'
-    print command
-    execute(command)
-    command = 'ssh -t -t jenkins@' + dockerbuildserver + ' "' + 'sudo ./jenkins_build_ui.sh' + '"'
-    print command
-    execute(command)
-    command = 'ssh jenkins@' + dockerbuildserver + ' "' + 'md5sum ~/images_ui/rhel7_edg_msd_ui.tar>~/images_ui/rhel7_edg_msd_ui.tar.md5' + '"'
-    print command
-    execute(command)
-    command = 'ssh jenkins@' + dockerbuildserver + ' "' + 'md5sum ~/images_ui/rhel7_edg_msd_ui_debug.tar>~/images_ui/rhel7_edg_msd_ui_debug.tar.md5' + '"'
-    print command
-    execute(command)
-    command = 'ssh jenkins@' + dockerbuildserver + ' "' + 'find images_ui/ -type l -delete' + '"'
-    print command
-    execute(command)
-    command = 'ssh jenkins@' + dockerbuildserver + ' "' + 'ln -sf ~/images_ui/rhel7_edg_msd_ui_debug.tar ~/images_ui/msgui_debug_v' + v + '.' + r + '"'
-    print command
-    execute(command)
-    command = 'ssh jenkins@' + dockerbuildserver + ' "' + 'ln -sf ~/images_ui/rhel7_edg_msd_ui.tar.md5 ~/images_ui/msgui_v' + v + '.' + r + '.md5"'
-    print command
-    execute(command)
-    command = 'ssh jenkins@' + dockerbuildserver + ' "' + 'ln -sf ~/images_ui/rhel7_edg_msd_ui_debug.tar.md5 ~/images_ui/msgui_debug_v' + v + '.' + r + '.md5"'
-    print command
-    execute(command)
-    command = 'ssh jenkins@' + dockerbuildserver + ' "' + 'ln -sf ~/images_ui/rhel7_edg_msd_ui.tar.md5 ~/images_ui/msgui_v' + v + '.' + r + '.md5"'
-    print command
-    execute(command)
+    printnflush('Building Docker UI image build ' + v + '.' + r + '.')
+    command = 'ssh ' + dest + ' "' + 'rm -fr ~/html/ms.zip' + '"'
+    execute(command,True)
+    command = 'ssh ' + dest + ' "' + 'mv ~/ms-webgui-' + v + '.zip ~/html/ms.zip' + '"'
+    execute(command,True)
+    command = 'ssh ' + dest + ' "' + 'rm -fr ~/images_ui/*' + '"'
+    execute(command,True)
+    command = 'ssh -t -t ' + dest + ' "' + 'sudo ./jenkins_build_ui.sh' + '"'
+    execute(command,True)
+    # Create MD5 files
+    command = 'ssh -t -t ' + dest + ' "' + 'for f in ~/images_ui/*;do md5sum $f>${f}.md5;done' + '"'
+    execute(command,True)
 
-def build_app_docker_images(v,r):
+def build_app_docker_images(v,r,dest):
     """
     Launches the script that builds Docker ms app image.
     """
-    print 'Building Docker App image build ' + v + '.' + r + '.'
-    sys.stdout.flush() 
-    command = 'ssh jenkins@' + dockerbuildserver + ' "' + 'rm -fr ~/html/ms.war' + '"'
-    print command
-    execute(command)
-    command = 'ssh jenkins@' + dockerbuildserver + ' "' + 'mv ~/ms-appserver-' + v + '.war ~/html/ms.war' + '"'
-    print command
-    execute(command)
-    command = 'ssh -t -t jenkins@' + dockerbuildserver + ' "' + 'sudo ./jenkins_sync_app.sh' + '"'
-    print command
-    execute(command)
-    command = 'ssh -t -t jenkins@' + dockerbuildserver + ' "' + 'sudo ./jenkins_build_app.sh' + '"'
-    print command
-    execute(command)
-    command = 'ssh jenkins@' + dockerbuildserver + ' "' + 'md5sum ~/images_app/rhel7_edg_msd_app.tar>~/images_app/rhel7_edg_msd_app.tar.md5' + '"'
-    print command
-    execute(command)
-    command = 'ssh jenkins@' + dockerbuildserver + ' "' + 'md5sum ~/images_app/rhel7_edg_msd_app_debug.tar>~/images_app/rhel7_edg_msd_app_debug.tar.md5' + '"'
-    print command
-    execute(command)
-    command = 'ssh jenkins@' + dockerbuildserver + ' "' + 'find images_app/ -type l -delete' + '"'
-    print command
-    execute(command)
-    command = 'ssh jenkins@' + dockerbuildserver + ' "' + 'ln -sf ~/images_app/rhel7_edg_msd_app_debug.tar ~/images_app/msapp_debug_v' + v + '.' + r + '"'
-    print command
-    execute(command)
-    command = 'ssh jenkins@' + dockerbuildserver + ' "' + 'ln -sf ~/images_app/rhel7_edg_msd_app.tar.md5 ~/images_app/msapp_v' + v + '.' + r + '.md5"'
-    print command
-    execute(command)
-    command = 'ssh jenkins@' + dockerbuildserver + ' "' + 'ln -sf ~/images_app/rhel7_edg_msd_app_debug.tar.md5 ~/images_app/msapp_debug_v' + v + '.' + r + '.md5"'
-    print command
-    execute(command)
-    command = 'ssh jenkins@' + dockerbuildserver + ' "' + 'ln -sf ~/images_app/rhel7_edg_msd_app.tar.md5 ~/images_app/msapp_v' + v + '.' + r + '.md5"'
-    print command
-    execute(command)
+    printnflush('Building Docker App image build ' + v + '.' + r + '.')
+    command = 'ssh ' + dest + ' "' + 'rm -fr ~/html/ms.war' + '"'
+    execute(command,True)
+    command = 'ssh ' + dest + ' "' + 'mv ~/ms-appserver-' + v + '.war ~/html/ms.war' + '"'
+    execute(command,True)
+    command = 'ssh ' + dest + ' "' + 'rm -fr ~/images_app/*' + '"'
+    execute(command,True)
+    command = 'ssh -t -t ' + dest + ' "' + 'sudo ./jenkins_build_app.sh' + '"'
+    execute(command,True)
+    # Create MD5 files
+    command = 'ssh -t -t ' + dest + ' "' + 'for f in ~/images_app/*;do md5sum $f>${f}.md5;done' + '"'
+    execute(command,True)
 
-
-def scp(file2copy,dest):
-    """ Returns True or False
-    This uses the external scp command (e.g. OPENSSH) to copy a given
-    file (file2copy) to a given destination (dest). This method calls
-    the helper method execute() to perform the actual execution of the
-    scp command. Prior to calling scp, the file2copy is first converted
-    to its Cygwin equivalent.
+def stage_docker_builds(src,dest):
+    """ 
+    This copies the docker builds from the Docker server specified in
+    src to the destination folder specified in dest.
     """
+    printnflush('Staging Managed Services build to ' + dest)
+    if os.path.exists(dest):   # Delete existing destination folder
+       printnflush('Removing existing destination path, ' + dest)
+       shutil.rmtree(dest,onerror=onerror)
 
-    if not os.path.isfile(file2copy): # Work on files only
-        return True
-    print 'Copying ' + file2copy + ', please wait. ',
-    sys.stdout.flush() 
-    cygfilepath = dos2cygpath(file2copy) # Get cygwin equivalent path
-    command = "scp " + "'" + cygfilepath + "' " + dest
-    commandResult = execute(command)
-    if commandResult == 0:
-        print 'OK.'
-        sys.stdout.flush() 
-        return True
-    else:
-        print 'Failed.'   
-        sys.stdout.flush() 
-        return False
+    # Create destination folders
+    printnflush('Creating destination folder, ' + dest)
+    os.mkdir(dest)
 
-def execute(cmd):
+    # Download application server image
+    printnflush('Downloading application server image')
+    sys.stdout.flush()
+    command = "scp " + src + ":~/images_app/rhel7_edg_msd_app*.tar* '" + dest + "'"
+    execute(command,True)    
+
+    # Download web server image
+    printnflush('Downloading web server image')
+    command = "scp " + src + ":~/images_ui/rhel7_edg_msd_ui*.tar* '" + dest + "'"
+    execute(command,True)    
+
+def pretty_time(secs):
+    """ Returns give time in seconds as h:m:s format
+    This calculates a given time in seconds a string formatted in h:m:s
+    """
+    m, s = divmod(secs, 60)
+    h, m = divmod(m, 60)
+    pt = "%d:%02d:%02d" % (h, m, s)
+    return pt
+
+def execute(cmd,printcmd=False):
     """ Returns the command's exit code. A return of 0 indicates sucessful.
 
     Launches a given external command and prints the output of the command. It
     return's the command's return code. A return of 0 indicates successful.
     Otherwise, any other value is an indication of a failure.
     """
-    process = subprocess.Popen(cmd, shell=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    if printcmd:
+        printnflush(cmd)
+
+    process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
     while True:     # Poll process for new output until finished
         nextline = process.stdout.readline()
@@ -227,8 +220,107 @@ def execute(cmd):
     output = process.communicate()[0]
     exitCode = process.returncode
 
-    return exitCode
-    #if (exitCode == 0):
-    #    return output
-    #else:
-    #    raise ProcessException(command, exitCode, output)
+    if (exitCode == 0):
+        return output
+    else:
+        raise ProcessException(command, exitCode, output)
+
+# Workspace
+workspace = os.environ['WORKSPACE']        # Workspace root folder
+jobname = os.environ['JOB_NAME']  # Job name
+buildmachine = os.environ['NODE_NAME']     # Build server hostname
+dockerbuildserver = os.environ['DOCKER_BUILD_SERVER'] # Docker build server
+buildnumber = os.environ['PROMOTED_DISPLAY_NAME'] # Full build number including version and revision numbers
+svnrevision = os.environ['SVN_REVISION'] # Revision number
+version = os.environ['POM_VERSION'] # Version number
+
+# Initialize Staging folder Destination (e.g. L:\Managed Services Docker Images\1.2.3)
+stagingsubfolder = os.environ['STAGING_SUBFOLDER'] # Staging subfolder
+host = 'devfs02' # SMB server
+share = 'L' # SMB share
+username = 'tde' # SMB user
+password = 'etech' # SMB user password
+unc = ''.join(['\\\\', host]) # UNC path
+win32wnet.WNetAddConnection2(0, None, unc, None, username, password) # Connect to destination share
+dockerimagestagingpath = unc + '\\' + share + '\\' + stagingsubfolder + '\\' + buildnumber
+
+cygworkspace = dos2cygpath(workspace) # Convert workspace to Cygwin equivalent for use with scp command
+
+# Tomcat config files artifact directory
+appconfigdir = os.path.join(workspace, "configs")  
+appconfigdir = os.path.join(appconfigdir, "tomcat")
+
+# HTTPD config files artifact directory
+httpdconfigdir = os.path.join(workspace , "configs")
+httpdconfigdir = os.path.join(httpdconfigdir , "httpd")
+
+# Application packages artifact directory (GUI and APP)
+apptargetdir = os.path.join(workspace, "target")
+
+# Docker build server connection
+dockerconnection = "jenkins@" + dockerbuildserver
+
+# Print info
+printnflush('[INFO] Relevant properties')
+printnflush('WORKSPACE  = ' + workspace)
+printnflush('NODE_NAME = ' + buildmachine)
+printnflush('STAGING_SUBFOLDER = ' + stagingsubfolder )
+printnflush('DOCKER_BUILD_SERVER = ' + dockerbuildserver)
+printnflush('DOCKER CONNECTION = ' + dockerconnection) 
+printnflush('BUILD NUMBER = ' + buildnumber)
+printnflush('VERSION NUMBER = ' + version)
+printnflush('REVISION NUMBER = ' + svnrevision)
+printnflush('DOCKER IMAGE STAGING PATH = ' + dockerimagestagingpath)
+printnflush('CYGWIN WORKSPACE EQUIVALENT = ' + cygworkspace)
+printnflush('HTTPD CONFIGURATION FOLDER = ' + httpdconfigdir)
+printnflush('TOMCAT CONFIGURATION FOLDER = ' + appconfigdir)
+
+# Copy UI config files to Docker build server
+printnflush("[INFO] Copying UI config files to Docker build server")
+start_time = time.time()
+os.path.walk(httpdconfigdir, upload_folder_flat, dockerconnection + ":~/configs/ui")
+elapsed_time = time.time() - start_time
+printnflush("Copy time = " + pretty_time(elapsed_time))
+# Copy App config files to Docker build server
+printnflush("[INFO] Copying application config files to Docker build server")
+start_time = time.time()
+os.path.walk(appconfigdir, upload_folder_flat, dockerconnection + ":~/configs/app")
+elapsed_time = time.time() - start_time
+printnflush("Copy time = " + pretty_time(elapsed_time))
+
+# Copy web and app build packages to Docker build server
+printnflush("[INFO] Copying application build packages to Docker build server")
+start_time = time.time()
+os.path.walk(apptargetdir, upload_folder_flat, dockerconnection + ":~/")
+elapsed_time = time.time() - start_time
+printnflush("Copy time = " + pretty_time(elapsed_time))
+
+# Execute Docker build scripts here
+printnflush("[INFO] Building UI Docker images")
+start_time = time.time()
+build_ui_docker_images(version,svnrevision,dockerconnection)
+elapsed_time = time.time() - start_time
+printnflush("Execution time = " + pretty_time(elapsed_time))
+
+printnflush("[INFO] Building App Docker images")
+start_time = time.time()
+build_app_docker_images(version,svnrevision,dockerconnection)
+elapsed_time = time.time() - start_time
+printnflush("Execution time = " + pretty_time(elapsed_time))
+
+printnflush("[INFO] Staging Docker images")
+start_time = time.time()
+stage_docker_builds(dockerconnection,dockerimagestagingpath)
+elapsed_time = time.time() - start_time
+printnflush("Copy time = " + pretty_time(elapsed_time))
+
+printnflush("[INFO] Getting md5 of staged builds")
+start_time = time.time()
+if verify_md5(os.path.join(dockerimagestagingpath, "rhel7_edg_msd_ui.tar")):
+   printnflush("[INFO] MD5 verification OK")
+else:
+   printnflush("[ERROR] MD5 verification failed")
+   sys.exit(-1)
+elapsed_time = time.time() - start_time
+printnflush("Copy time = " + pretty_time(elapsed_time))
+sys.exit(0)
